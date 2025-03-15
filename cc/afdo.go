@@ -24,7 +24,7 @@ import (
 )
 
 // This flag needs to be in both CFlags and LdFlags to ensure correct symbol ordering
-const afdoFlagsFormat = "-fprofile-sample-use=%s -fprofile-sample-accurate"
+const afdoFlagsFormat = "-fno-profile-sample-use"
 
 type AfdoProperties struct {
 	// Afdo allows developers self-service enroll for
@@ -56,7 +56,7 @@ func (afdo *afdo) begin(ctx BaseModuleContext) {
 // afdoEnabled returns true for binaries and shared libraries
 // that set afdo prop to True.
 func (afdo *afdo) afdoEnabled() bool {
-	return afdo != nil && afdo.Properties.Afdo
+	return false
 }
 
 func (afdo *afdo) isAfdoCompile(ctx ModuleContext) bool {
@@ -65,12 +65,6 @@ func (afdo *afdo) isAfdoCompile(ctx ModuleContext) bool {
 }
 
 func getFdoProfilePathFromDep(ctx ModuleContext) string {
-	fdoProfileDeps := ctx.GetDirectDepsWithTag(FdoProfileTag)
-	if len(fdoProfileDeps) > 0 && fdoProfileDeps[0] != nil {
-		if info, ok := android.OtherModuleProvider(ctx, fdoProfileDeps[0], FdoProfileProvider); ok {
-			return info.Path.String()
-		}
-	}
 	return ""
 }
 
@@ -79,26 +73,6 @@ func (afdo *afdo) flags(ctx ModuleContext, flags Flags) Flags {
 		return flags
 	}
 
-	if afdo.Properties.Afdo || afdo.Properties.AfdoDep {
-		// Emit additional debug info for AutoFDO
-		flags.Local.CFlags = append([]string{"-fdebug-info-for-profiling"}, flags.Local.CFlags...)
-		// We use `-funique-internal-linkage-names` to associate profiles to the right internal
-		// functions. This option should be used before generating a profile. Because a profile
-		// generated for a binary without unique names doesn't work well building a binary with
-		// unique names (they have different internal function names).
-		// To avoid a chicken-and-egg problem, we enable `-funique-internal-linkage-names` when
-		// `afdo=true`, whether a profile exists or not.
-		// The profile can take effect in three steps:
-		// 1. Add `afdo: true` in Android.bp, and build the binary.
-		// 2. Collect an AutoFDO profile for the binary.
-		// 3. Make the profile searchable by the build system. So it's used the next time the binary
-		//	  is built.
-		flags.Local.CFlags = append([]string{"-funique-internal-linkage-names"}, flags.Local.CFlags...)
-		// Flags for Flow Sensitive AutoFDO
-		flags.Local.CFlags = append([]string{"-mllvm", "-enable-fs-discriminator=true"}, flags.Local.CFlags...)
-		// TODO(b/266595187): Remove the following feature once it is enabled in LLVM by default.
-		flags.Local.CFlags = append([]string{"-mllvm", "-improved-fs-discriminator=true"}, flags.Local.CFlags...)
-	}
 	if fdoProfilePath := getFdoProfilePathFromDep(ctx); fdoProfilePath != "" {
 		// The flags are prepended to allow overriding.
 		profileUseFlag := fmt.Sprintf(afdoFlagsFormat, fdoProfilePath)
